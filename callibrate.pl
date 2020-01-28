@@ -105,6 +105,7 @@ if ((-e $save_file) && $lookup_ok == 1) {
 }
 
 # Run measurements
+print "Running callibration for CPU performance (please be patient, this may take a few minutes)\n";
 @values = ();
 
 for ($i = 0; $i < $N; $i += 1) {

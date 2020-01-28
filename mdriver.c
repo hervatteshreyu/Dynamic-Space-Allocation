@@ -1173,6 +1173,8 @@ static double eval_mm_util(trace_t *trace, int tracenum)
     size_t size, newsize, oldsize;
     size_t max_total_size = 0;
     size_t total_size = 0;
+    size_t max_heap_size = 0;
+    size_t heap_size = 0;
     char *p;
     char *newp, *oldp;
 
@@ -1243,13 +1245,16 @@ static double eval_mm_util(trace_t *trace, int tracenum)
         /* update the high-water mark */
         max_total_size = (total_size > max_total_size) ?
             total_size : max_total_size;
+        heap_size = mem_heapsize();
+        max_heap_size = (heap_size > max_heap_size) ?
+            heap_size : max_heap_size;
     }
 
 #if !REF_ONLY
     printf(".");
 #endif
 
-    return ((double)max_total_size / (double)mem_heapsize());
+    return ((double)max_total_size / (double)max_heap_size);
 }
 
 
