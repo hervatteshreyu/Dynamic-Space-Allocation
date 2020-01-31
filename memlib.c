@@ -27,39 +27,18 @@ static unsigned char *mem_max_addr;         /* Maximum allowable heap address */
  * mem_init - initialize the memory system model
  */
 void mem_init(){
-    int dev_zero = open("/dev/zero", O_RDWR);
-    unsigned char *start = TRY_DENSE_HEAP_START;
-    unsigned char *addr = mmap(start,          /* start*/
-                               MAX_DENSE_HEAP, /* length */
-                               PROT_WRITE,     /* permissions */
-                               MAP_PRIVATE,    /* private or shared? */
-                               dev_zero,       /* fd */
-                               0);             /* offset */
+    unsigned char* addr = mmap(NULL,                                        /* start*/
+                               MAX_HEAP_SIZE,                               /* length */
+                               PROT_READ | PROT_WRITE,                      /* permissions */
+                               MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, /* flags */
+                               -1,                                          /* fd */
+                               0);                                          /* offset */
     if (addr == MAP_FAILED) {
 	fprintf(stderr, "FAILURE.  mmap couldn't allocate space for heap\n");
 	exit(1);
     }
     heap = addr;
-    if (NUM_SPARSE_ALLOC * SPARSE_INCREMENT > MAX_DENSE_HEAP) {
-        addr -= 16 * 1024; /* offset before each spare allocation */
-        mem_max_addr = addr + (NUM_SPARSE_ALLOC * SPARSE_INCREMENT) + MAX_SPARSE_HEAP;
-        for (start = addr + SPARSE_INCREMENT;
-             start < mem_max_addr;
-             start = addr + SPARSE_INCREMENT) {
-            addr = mmap(start,           /* start*/
-                        MAX_SPARSE_HEAP, /* length */
-                        PROT_WRITE,      /* permissions */
-                        MAP_PRIVATE,     /* private or shared? */
-                        dev_zero,        /* fd */
-                        0);              /* offset */
-            if (addr != start) {
-                fprintf(stderr, "FAILURE.  mmap couldn't allocate space for heap\n");
-                exit(1);
-            }
-        }
-    } else {
-        mem_max_addr = addr + MAX_DENSE_HEAP;
-    }
+    mem_max_addr = addr + MAX_HEAP_SIZE;
     mem_reset_brk();
 }
 
@@ -67,21 +46,9 @@ void mem_init(){
  * mem_deinit - free the storage used by the memory system model
  */
 void mem_deinit(void){
-    unsigned char *addr = heap;
-    if (munmap(addr, MAX_DENSE_HEAP) != 0) {
+    if (munmap(heap, MAX_HEAP_SIZE) != 0) {
         fprintf(stderr, "FAILURE.  munmap couldn't deallocate heap space\n");
         exit(1);
-    }
-    if (NUM_SPARSE_ALLOC * SPARSE_INCREMENT > MAX_DENSE_HEAP) {
-        addr -= 16 * 1024; /* offset before each spare allocation */
-        for (addr += SPARSE_INCREMENT;
-             addr < mem_max_addr;
-             addr += SPARSE_INCREMENT) {
-            if (munmap(addr, MAX_SPARSE_HEAP) != 0) {
-                fprintf(stderr, "FAILURE.  munmap couldn't deallocate heap space\n");
-                exit(1);
-            }
-        }
     }
 }
 

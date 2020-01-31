@@ -101,15 +101,7 @@
 /*
  * Maximum heap size in bytes
  */
-#define MAX_DENSE_HEAP (120ull*(1<<20)) /* 120 MB */
-#define MAX_SPARSE_HEAP (1ull*(1<<20))  /* 1 MB */
-#define SPARSE_INCREMENT (2ull*(1<<30)) /* 2 GB */
-#define NUM_SPARSE_ALLOC (130ull)
-
-/*
- * Starting address of the memory allocated for the heap by mmap
- */
-#define TRY_DENSE_HEAP_START (void *) 0x800000000
+#define MAX_HEAP_SIZE (1ull*(1ull<<40)) /* 1 TB */
 
 
 /***************** Parameters for looking up reference throughput *********/
