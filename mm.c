@@ -1,7 +1,7 @@
 /*
  * mm.c
  *
- * Name: [FILL IN]
+ * Name: Shreyas Hervatte Santosh
  *
  * NOTE TO STUDENTS: Replace this header comment with your own header
  * comment that gives a high level description of your solution.
