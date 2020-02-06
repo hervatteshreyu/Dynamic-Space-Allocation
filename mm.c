@@ -65,27 +65,25 @@ bool mm_init(void)
 {
     /* IMPLEMENT THIS */
     long * start = (long*)mem_sbrk((intptr_t)24);
-    printf("Heap starts at %p\n and ends at %p\n",start,mem_heap_hi());
+
     int offset = (intptr_t)(start+3) & 0xF;
-    printf("Offset after adding prologue and header - 0x%x\n",offset);
+
     if(offset != 0){
         //Not 16 byte aligned - add padding before prologue
         start = start+((0x10-offset)/8);
-        printf("Heap start after adjusting offset - %p\n Malloc will start from %p",start,start+3);
+
     }
-    printf("%ld\n",*start);
+    /*Header of Prologue*/
     *start = *start & 0x0;
     *start = *start | 0x1;
-    printf("Header - %ld\nHeader size - %ld\n",*start,sizeof(*start));
     start = start + 1;
+    /*Footer of Prologue*/
     *start = *start & 0x0;                                                                                                                *start = *start | 0x1;
-    printf("Footer added at %p\nFooter - %ld\nFooter size - %ld\n",start,*start,sizeof(*start));
     start = start + 1;
+    /*Header of Epilogue*/
     *start = *start & 0x0;
     *start = *start | 0x1;
-    printf("Header added at %p\nHeader - %ld\nHeader size - %ld\n",start,*start,sizeof(*start));
     start = start + 1;
-    printf("Heap after prologue and new header %p\n",(void *)start -1 );
     head = (void *) start;
     return true;
 }
@@ -96,9 +94,18 @@ bool mm_init(void)
 void* malloc(size_t size)
 {
     if(size>0){
-        void * ret_ptr = mem_sbrk((intptr_t)align(size));
-        
-        if (ret_ptr == (void *)-1)return NULL;
+        //        printf("Size %ld\nSize+footer %ld\n",size,size+8);
+        void *temp_head = mem_sbrk((intptr_t)(align(size)+16));
+        if (temp_head == (void *)-1)return NULL;
+        void * ret_ptr = head;
+        char * header=head-8, *footer = mem_heap_hi()-7, *epilogue = mem_heap_hi()+1;
+        *header = align(size);
+        *header = *header | 0x1;
+        *footer = align(size);                                                                                                                *footer = *header | 0x1;
+        *epilogue = *epilogue & 0x0;
+        *epilogue = *epilogue | 0x1;
+        head = (void *)epilogue+8;
+        //printf("Retptr%p\nHeader%p\nFooter%p\nEpilogue%p\nNewHead%p\n",ret_ptr,header,footer,epilogue,head);
         return ret_ptr;
     }
     /* IMPLEMENT THIS */
