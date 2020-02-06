@@ -3,9 +3,21 @@
  *
  * Name: Shreyas Hervatte Santosh
  *
- * NOTE TO STUDENTS: Replace this header comment with your own header
- * comment that gives a high level description of your solution.
- * Also, read malloclab.pdf carefully and in its entirety before beginning.
+ *This is a basic implementation of malloc. Throughput and utilization are not being accounted for.
+ *This version only aims for correctness of malloc. 
+ *Malloc works by increasing the size of the heap everytime malloc is called.
+ *It maintains 16 byte alignment of payload addresses by starting off with some padding before the prologue
+ *and every malloc returns 16 byte aligned addresses and adds a header and a footer of 8 bytes each
+ *
+ *Free does essentially nothing but clear the allocated bit of the header of the pointer it receives
+ *
+ *Realloc simply mallocs and copies the data from the old block.
+ *
+ *Since malloc and realloc aren't looking for free blocks and since free isn't coelescing free blocks,
+ *This model has very bad memory utilization.
+ *However due to simple design of malloc, realloc and free, the throughput is higher than the benchmark
+ *
+ *In further checkpoints, explicit and segregated free list models will be explored to improve utilization and throughput
  *
  */
 #include <assert.h>
@@ -50,41 +62,55 @@
 /* What is the correct alignment? */
 #define ALIGNMENT 16
 
-/*Pointer keeping track of the Head of the free heap*/
-void * head = NULL;
 /* rounds up to the nearest multiple of ALIGNMENT */
 static size_t align(size_t x)
 {
     return ALIGNMENT * ((x+ALIGNMENT-1)/ALIGNMENT);
 }
 
+/*Pointer keeping track of the Head of the free heap*/                                                                                void * head = NULL;
+
 /*
  * Initialize: returns false on error, true on success.
  */
 bool mm_init(void)
 {
-    /* IMPLEMENT THIS */
+    /*start is a long pointer - 8bytes long*/
+    /*Adding 1 will move the address forward by 8 bytes*/
     long * start = (long*)mem_sbrk((intptr_t)24);
 
+    /*Return false for initialization errors*/
+    if (start == NULL)return false;
+
+    /*Calculate lower 4 bytes of address including 2 headers and a footer*/
     int offset = (intptr_t)(start+3) & 0xF;
 
     if(offset != 0){
-        //Not 16 byte aligned - add padding before prologue
+        /*Not 16 byte aligned - add padding before prologue*/
+        /*Payload after prologue + header will be 16 byte aligned*/
         start = start+((0x10-offset)/8);
-
     }
+
     /*Header of Prologue*/
+    /*Set size 0 and alloc bit high*/
     *start = *start & 0x0;
     *start = *start | 0x1;
     start = start + 1;
+
     /*Footer of Prologue*/
+    /*Set size 0 and alloc bit high*/
     *start = *start & 0x0;                                                                                                                *start = *start | 0x1;
     start = start + 1;
+
     /*Header of Epilogue*/
+    /*Set size 0 and alloc bit high*/
     *start = *start & 0x0;
     *start = *start | 0x1;
     start = start + 1;
+    
+    /*Global head points to address after prologue + header*/
     head = (void *) start;
+
     return true;
 }
 
@@ -93,28 +119,41 @@ bool mm_init(void)
  */
 void* malloc(size_t size)
 {
-    #ifdef DEBUG
-    printf("++++++++++Inside Malloc++++++++++\nSize to allocate %ld\n",size);
-    #endif
+    
     if(size>0){
-        //        printf("Size %ld\nSize+footer %ld\n",size,size+8);
+        
+        /*Extend heap by 16byte aligned size + 16 bytes for header and footer*/
+        /*Store return value for pointer to check for errors with mem_sbrk*/
         void *temp_head = mem_sbrk((intptr_t)(align(size)+16));
         if (temp_head == (void *)-1)return NULL;
+
+        /*New payload will start from global head - header has already been allocated*/
         void * ret_ptr = head;
+
+        /*Adjust the locations of the payload header, footer and new epilogue*/
         char * header=head-8, *footer = mem_heap_hi()-7, *epilogue = mem_heap_hi()+1;
+
+        /*Store size in header and set allocated bit*/
+        /*Typecasting to (long *) makes sure all 8 bytes of the  header are being used*/
         *(long*)header = align(size);
         *(long*)header = *(long*)header | 0x1;
-        *(long*)footer = align(size);                                                                                                                *(long*)footer = *(long*)footer | 0x1;
+        
+        /*Store size in footer and set allocated bit*/
+        /*Typecasting to (long *) makes sure all 8 bytes of the  header are being used*/
+        *(long*)footer = align(size);
+        *(long*)footer = *(long*)footer | 0x1;
+
+        /*Set empty epilogue and set allocated bit*/
+        /*Typecasting to (long *) makes sure all 8 bytes of the  header are being used*/
         *(long*)epilogue = *(long*)epilogue & 0x0;
         *(long*)epilogue = *(long*)epilogue | 0x1;
+
+        /*Global head points to end of allocated payload + header of next payload*/
         head = (void *)((long*)epilogue+1);
-        #ifdef DEBUG
-        printf("%ld bytes Allocated at %p\n",*(long*)header,ret_ptr);
-        #endif
-        //printf("Retptr%p\nHeader%p\nFooter%p\nEpilogue%p\nNewHead%p\n",ret_ptr,header,footer,epilogue,head);
+
         return ret_ptr;
     }
-    /* IMPLEMENT THIS */
+    /* Return NULL if size<=0 */
     return NULL;
 }
 
@@ -123,8 +162,8 @@ void* malloc(size_t size)
  */
 void free(void* ptr)
 {
+    /*Alloc bit of header is cleared*/
     *((char *)ptr-8) = *((char *)ptr-8) & 0xfffffffffffffff0;
-    /* IMPLEMENT THIS */
     return;
 }
 
@@ -133,36 +172,30 @@ void free(void* ptr)
  */
 void* realloc(void* oldptr, size_t size)
 {
-    #ifdef DEBUG
-    printf("====Inside Realloc====\nOldptr %p\n Size %ld\n",oldptr,size);
-    printf("Heap end before malloc %p\n",mem_heap_hi());
-    #endif
-    void * newptr = malloc(size);
-    #ifdef DEBUG
-    printf("Heap end after malloc %p\n",mem_heap_hi());
-    printf("Newptr %p\n",newptr);
-    #endif
-    if(newptr == NULL)return NULL;
-    if(oldptr == NULL)return newptr;
+    /*If size is zero, return NULL - Undefined behaviour*/
     if(size == 0)return NULL;
+
+    /*Try to malloc for a new size*/
+    void * newptr = malloc(size);
+
+    /*Malloc error*/
+    if(newptr == NULL)return NULL;
+
+    /*If old pointer wsan't returned from a malloc or calloc, return output of malloc*/
+    if(oldptr == NULL)return newptr;
+
+    /*Read size of old block*/
+    /*Dereferencing (long*) gives 8 byte value*/
     size_t oldsize = *((long*)oldptr-1);
-    #ifdef DEBUG
-    printf("Oldsize 0x%lx\n",oldsize);
-    printf("Oldsize %lu\n",oldsize);
-    #endif
     oldsize = (oldsize & 0xfffffffffffffff0);
-    #ifdef DEBUG
-    printf("Oldsize masked 0x%lx\n",oldsize);
-    printf("Oldsize masked %lu\n",oldsize);
-    printf("Newsize %ld\n",size);
-    #endif
+
+    /*Align new size to 16 bytes*/
     size = align(size);
-    #ifdef DEBUG
-    printf("New size aligned %ld\n",size);
-    #endif
+
+    /*Copy data from old block to new block - size decided by minimum of old and new sizes*/
     mem_memcpy(newptr, oldptr, oldsize>size?size:oldsize);
+    
     return newptr;
-    /* IMPLEMENT THIS */
 }
 
 /*
@@ -206,7 +239,7 @@ bool mm_checkheap(int lineno)
 {
 #ifdef DEBUG
     /* Write code to check heap invariants here */
-    /* IMPLEMENT THIS */
+    /* NOT IMPLEMENTED IN THIS CHECKPOINT */
 #endif /* DEBUG */
     return true;
 }
