@@ -93,18 +93,24 @@ bool mm_init(void)
  */
 void* malloc(size_t size)
 {
+    #ifdef DEBUG
+    printf("++++++++++Inside Malloc++++++++++\nSize to allocate %ld\n",size);
+    #endif
     if(size>0){
         //        printf("Size %ld\nSize+footer %ld\n",size,size+8);
         void *temp_head = mem_sbrk((intptr_t)(align(size)+16));
         if (temp_head == (void *)-1)return NULL;
         void * ret_ptr = head;
         char * header=head-8, *footer = mem_heap_hi()-7, *epilogue = mem_heap_hi()+1;
-        *header = align(size);
-        *header = *header | 0x1;
-        *footer = align(size);                                                                                                                *footer = *header | 0x1;
-        *epilogue = *epilogue & 0x0;
-        *epilogue = *epilogue | 0x1;
-        head = (void *)epilogue+8;
+        *(long*)header = align(size);
+        *(long*)header = *(long*)header | 0x1;
+        *(long*)footer = align(size);                                                                                                                *(long*)footer = *(long*)footer | 0x1;
+        *(long*)epilogue = *(long*)epilogue & 0x0;
+        *(long*)epilogue = *(long*)epilogue | 0x1;
+        head = (void *)((long*)epilogue+1);
+        #ifdef DEBUG
+        printf("%ld bytes Allocated at %p\n",*(long*)header,ret_ptr);
+        #endif
         //printf("Retptr%p\nHeader%p\nFooter%p\nEpilogue%p\nNewHead%p\n",ret_ptr,header,footer,epilogue,head);
         return ret_ptr;
     }
@@ -127,11 +133,33 @@ void free(void* ptr)
  */
 void* realloc(void* oldptr, size_t size)
 {
+    #ifdef DEBUG
+    printf("====Inside Realloc====\nOldptr %p\n Size %ld\n",oldptr,size);
+    printf("Heap end before malloc %p\n",mem_heap_hi());
+    #endif
     void * newptr = malloc(size);
+    #ifdef DEBUG
+    printf("Heap end after malloc %p\n",mem_heap_hi());
+    printf("Newptr %p\n",newptr);
+    #endif
     if(newptr == NULL)return NULL;
     if(oldptr == NULL)return newptr;
     if(size == 0)return NULL;
-    size_t oldsize = (*((char*)oldptr-8) & 0xfffffffffffffff0);
+    size_t oldsize = *((long*)oldptr-1);
+    #ifdef DEBUG
+    printf("Oldsize 0x%lx\n",oldsize);
+    printf("Oldsize %lu\n",oldsize);
+    #endif
+    oldsize = (oldsize & 0xfffffffffffffff0);
+    #ifdef DEBUG
+    printf("Oldsize masked 0x%lx\n",oldsize);
+    printf("Oldsize masked %lu\n",oldsize);
+    printf("Newsize %ld\n",size);
+    #endif
+    size = align(size);
+    #ifdef DEBUG
+    printf("New size aligned %ld\n",size);
+    #endif
     mem_memcpy(newptr, oldptr, oldsize>size?size:oldsize);
     return newptr;
     /* IMPLEMENT THIS */
