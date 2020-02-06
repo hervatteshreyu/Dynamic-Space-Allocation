@@ -117,6 +117,7 @@ void* malloc(size_t size)
  */
 void free(void* ptr)
 {
+    *((char *)ptr-8) = *((char *)ptr-8) & 0xfffffffffffffff0;
     /* IMPLEMENT THIS */
     return;
 }
@@ -126,8 +127,14 @@ void free(void* ptr)
  */
 void* realloc(void* oldptr, size_t size)
 {
+    void * newptr = malloc(size);
+    if(newptr == NULL)return NULL;
+    if(oldptr == NULL)return newptr;
+    if(size == 0)return NULL;
+    size_t oldsize = (*((char*)oldptr-8) & 0xfffffffffffffff0);
+    mem_memcpy(newptr, oldptr, oldsize>size?size:oldsize);
+    return newptr;
     /* IMPLEMENT THIS */
-    return NULL;
 }
 
 /*
