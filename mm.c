@@ -21,7 +21,7 @@
  * uncomment the following line. Be sure not to have debugging enabled
  * in your final submission.
  */
-// #define DEBUG
+#define DEBUG
 
 #ifdef DEBUG
 /* When debugging is enabled, the underlying functions get called */
@@ -47,6 +47,7 @@
 /* What is the correct alignment? */
 #define ALIGNMENT 16
 
+#define CLASSLIMIT 12
 #define CLASS0 16
 #define CLASS1 32
 #define CLASS2 48 
@@ -59,10 +60,6 @@
 #define CLASS9 16384
 #define CLASS10 65536
 #define CLASS11 262144
-#define CLASS12 1048576
-#define CLASS13 4194304
-#define CLASS14 16777216
-#define CLASS15 67108864
 /* rounds up to the nearest multiple of ALIGNMENT */
 static size_t align(size_t x)
 {
@@ -76,8 +73,8 @@ typedef struct FreeListNode_s {
     struct FreeListNode_s * next;
 }FreeListNode;
 
-FreeListNode * freelist[16];
-
+FreeListNode * freelist[CLASSLIMIT];
+int offset=0;
 void add_free_node(FreeListNode ** head, FreeListNode * node){
     if(*head == NULL){
         *head = node;
@@ -125,10 +122,6 @@ int size_to_class_index(size_t size){
     if (size >CLASS8 && size <=CLASS9) return 9;
     if (size >CLASS9 && size <=CLASS10) return 10;
     if (size >CLASS10 && size <=CLASS11) return 11;
-    if (size >CLASS11 && size <=CLASS12) return 12;
-    if (size >CLASS12 && size <=CLASS13) return 13;
-    if (size >CLASS13 && size <=CLASS14) return 14;
-    if (size >CLASS14 && size <=CLASS15) return 15;
     return -1;
 }
 
@@ -137,9 +130,11 @@ size_t get_size_from_header(void * ptr){
     size_t size = *header & ~0xf;
     return size;
 }
-void set_header_free(void * ptr){
+void set_free(void * ptr){
     long * header = ((long *)ptr-1); 
     *header = *header & ~0xf;
+    long * footer = header + (*header/8);
+    *footer = *header;
 }
 void set_alloc(void * ptr){
     long * header = (((long *)ptr)-1);
@@ -158,16 +153,19 @@ bool is_free_right(void * ptr){
     *header = *header & ~0xf;
     long * footer = (((long *)ptr) + ((*header)/8));
     long * next_header = footer + 1;
-    if(((*next_header) & 0xf) == 1)return false;
+    if(((*next_header) & 0x1) == 1)return false;
     return true;
 }
+static bool in_heap(const void *);
 void coalesce_right(void * ptr){
     if(!is_free_right(ptr))return;
     else{
     long * header = (((long *)ptr)-1);
     long * footer = (((long *)ptr) + ((*header)/8));
     long * next_header = footer + 1;
+    if(!in_heap(next_header))return;
     long * next_footer = (((long *)ptr) + ((*next_header)/8));
+    if(!in_heap(next_footer))return;
     size_t size = next_footer - header + 1;
     *header = size;
     *next_footer = size;
@@ -189,16 +187,16 @@ void split_block(FreeListNode * node, size_t size, size_t blocksize){
     void * start_of_block = end_of_block + 8;
     end_of_block = start_of_block + newsize;
     *(long *)end_of_block = newsize;
-    //    int index = size_to_class_index(newsize);
-    // add_free_node(&freelist[index], (FreeListNode *) start_of_block);
-    free(start_of_block);
+    int index = size_to_class_index(newsize);
+    add_free_node(&freelist[index], (FreeListNode *) start_of_block);
+    set_free(start_of_block);
 }
 /*
  * Initialize: returns false on error, true on success.
  */
 bool mm_init(void)
 {
-    for(int i=0;i<16;i++){
+    for(int i=0;i<CLASSLIMIT;i++){
         freelist[i]=NULL;
     }
     /*start is a long pointer - 8bytes long*/
@@ -208,7 +206,7 @@ bool mm_init(void)
     if (start == NULL)return false;
 
     /*Calculate lower 4 bytes of address including 2 headers and a footer*/
-    int offset = (intptr_t)(start+3) & 0xF;
+    offset = (intptr_t)(start+3) & 0xF;
 
     if(offset != 0){
         /*Not 16 byte aligned - add padding before prologue*/
@@ -218,24 +216,21 @@ bool mm_init(void)
 
     /*Header of Prologue*/
     /*Set size 0 and alloc bit high*/
-    *start = *start & 0x0;
-    *start = *start | 0x1;
+    *start = 0x1;
     start = start + 1;
 
     /*Footer of Prologue*/
     /*Set size 0 and alloc bit high*/
-    *start = *start & 0x0;                                                                                                                *start = *start | 0x1;
+    *start = 0x1;
     start = start + 1;
 
     /*Header of Epilogue*/
     /*Set size 0 and alloc bit high*/
-    *start = *start & 0x0;
-    *start = *start | 0x1;
+    *start = 0x1;
     start = start + 1;
     
     /*Global head points to address after prologue + header*/
     //    head = (void *) start;
-
     return true;
 }
 
@@ -269,7 +264,8 @@ void* malloc(size_t size)
             }
             if(found_flag){
                 if(split_flag){
-                    split_block(node, size,blocksize);
+                    //   split_block(node, size,blocksize);
+                    mm_checkheap(__LINE__);
                 }
                 ret_ptr = (char *)remove_free_node( &freelist[index] , node);
                 set_alloc((void *)ret_ptr);
@@ -301,8 +297,8 @@ void free(void* ptr)
 {
     size_t size = get_size_from_header(ptr);
     /*Alloc bit of header is cleared*/
-    set_header_free(ptr);
-    //    coalesce_right(ptr);
+    set_free(ptr);
+    coalesce_right(ptr);
     int index = size_to_class_index(size);
     add_free_node(&freelist[index], (FreeListNode *) ptr);
     return;
@@ -374,13 +370,63 @@ static bool aligned(const void* p)
     size_t ip = (size_t) p;
     return align(ip) == ip;
 }
-
+bool checknodefree(FreeListNode * node){
+    bool retval = false;
+    void * ptr = (void *)node;
+    long * header = ((long *)ptr) - 1;
+    //    size_t size = get_size_from_header(ptr);
+    retval = (((*header) & 0xf) == 0x0);
+    if(!retval){dbg_printf("Header of node not free\n");};
+    //    long * footer = ((long *)ptr) + (size/8);
+    //retval = (((*footer) & 0xf) == 0x0);
+    //if(!retval){dbg_printf("Footer of node not free\n");};
+    return retval;
+}
+bool checkfreelist(){
+    bool retval = true;
+    FreeListNode * node;
+    for(int i=0; i<CLASSLIMIT; i++){
+        node = freelist[i];
+        if(node ==NULL)continue;
+        while(!list_at_end(node)){
+            if(!checknodefree(node)){
+                dbg_printf("Node %p in List %d not marked free\n",(void *)node,i);
+                retval = false;
+            }
+            node = node->next;
+        }
+    }
+    return retval;
+}
+bool checkcoalesce(){
+#ifdef DEBUG
+#endif
+    return true;
+}
+void * get_foot_from_head(void * ptr){
+    size_t size = get_size_from_header(ptr);
+    char * footer = (char *)ptr;
+    footer = footer + size;
+    return footer;
+}
+void printheap(){
+    char * ptr = mem_heap_lo() +(0x10-offset)+ 8;
+    dbg_printf("Heap start\n");
+    while(ptr < (char *)mem_heap_hi()){
+        dbg_printf("|%p:0x%lx|%p:0x%lx|%p:0x%lx|\n", ptr - 8 , *((long*)(ptr - 8)) , ptr , get_size_from_header((void *)ptr) , ptr+get_size_from_header((void *)ptr) , *((long*)(ptr+get_size_from_header((void *)ptr))) );
+        ptr = ptr+get_size_from_header((void *)ptr)+16;
+    }
+    dbg_printf("Heap end\n");
+}
 /*
  * mm_checkheap
  */
 bool mm_checkheap(int lineno)
 {
 #ifdef DEBUG
+    //printheap();
+    if(!checkfreelist()){dbg_printf("Free list check failed at %d\n",lineno);};
+    if(!checkcoalesce()){dbg_printf("Coalesce check failed at %d\n",lineno);};
     /* Write code to check heap invariants here */
     /* NOT IMPLEMENTED IN THIS CHECKPOINT */
 #endif /* DEBUG */
