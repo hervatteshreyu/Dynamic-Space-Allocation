@@ -1,5 +1,3 @@
-
-
 /*
  * mm.c
  *
@@ -81,9 +79,17 @@ typedef struct FreeListNode_s {
 FreeListNode * freelist[16];
 
 void add_free_node(FreeListNode ** head, FreeListNode * node){
+    if(*head == NULL){
+        *head = node;
+        node->next = NULL;
+        node->prev = NULL;
+    }
+    else{
     node->next = *head;
     node->prev = NULL;
     (*head)->prev = node;
+    *head = node;
+    }
 }
 
 FreeListNode* remove_free_node(FreeListNode ** head, FreeListNode * node)
@@ -193,27 +199,28 @@ void* malloc(size_t size)
     size = align(size);
     bool split_flag=false, found_flag=false;
     int index = size_to_class_index(size);
-    if(freelist[index]!=NULL){
-        FreeListNode * node = freelist[index];
-        while(!list_at_end(node)){
-            size_t blocksize = size_of_node(node);
-            if(size==blocksize){
-                found_flag=true;
-                break;
+    if(index!=-1){
+        if(freelist[index]!=NULL){
+            FreeListNode * node = freelist[index];
+            while(!list_at_end(node)){
+                size_t blocksize = size_of_node(node);
+                if(size==blocksize){
+                    found_flag=true;
+                    break;
+                }
+                if(size<blocksize){
+                    found_flag=true;
+                    split_flag=true;
+                    break;
+                }
+                node=node->next;
             }
-            if(size<blocksize){
-                found_flag=true;
-                split_flag=true;
-                break;
+            if(found_flag){
+                return remove_free_node( &freelist[index] , node);
             }
-            node=node->next;
+            if(split_flag){};
         }
-        if(found_flag){
-            return remove_free_node( &freelist[index] , node);
-        }
-        if(split_flag){};
     }
-
     
         char * ret_ptr = mem_heap_hi() + 9;
         void *temp_head = mem_sbrk((intptr_t)(size+16));
@@ -221,14 +228,11 @@ void* malloc(size_t size)
 
         char * header=(char *)((long *)ret_ptr - 1), *footer = mem_heap_hi()-7, *epilogue = mem_heap_hi()+1;
 
-        *(long*)header = size;
-        *(long*)header = *(long*)header | 0x1;
+        *(long*)header = size+1;
         
-        *(long*)footer = size;
-        *(long*)footer = *(long*)footer | 0x1;
+        *(long*)footer = size+1;
 
-        *(long*)epilogue = *(long*)epilogue & 0x0;
-        *(long*)epilogue = *(long*)epilogue | 0x1;
+        *(long*)epilogue = (*(long*)epilogue & 0x0)+1;
 
         return (void *) ret_ptr;
 }
@@ -238,9 +242,11 @@ void* malloc(size_t size)
  */
 void free(void* ptr)
 {
-    //    size_t size = get_size_from_header(ptr);
+    size_t size = get_size_from_header(ptr);
     /*Alloc bit of header is cleared*/
     set_header_free(ptr);
+    int index = size_to_class_index(size);
+    add_free_node(&freelist[index], (FreeListNode *) ptr);
     return;
 }
 
@@ -250,7 +256,10 @@ void free(void* ptr)
 void* realloc(void* oldptr, size_t size)
 {
     /*If size is zero, return NULL - Undefined behaviour*/
-    if(size == 0)return NULL;
+    if(size == 0){
+        free(oldptr);
+        return NULL;
+    }
 
     /*Try to malloc for a new size*/
     void * newptr = malloc(size);
