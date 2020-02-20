@@ -3,7 +3,22 @@
  *
  * Name: Shreyas Hervatte Santosh
  *
- *Note to self - MAKE A COUNTER TO SEE SIZE CLASSES ALONG WITH FREQUENCY OF MALLOC CALLS
+ *This is a basic implementation of malloc. Throughput and utilization are not being accounted for.
+ *This version only aims for correctness of malloc. 
+ *Malloc works by increasing the size of the heap everytime malloc is called.
+ *It maintains 16 byte alignment of payload addresses by starting off with some padding before the prologue
+ *and every malloc returns 16 byte aligned addresses and adds a header and a footer of 8 bytes each
+ *
+ *Free does essentially nothing but clear the allocated bit of the header of the pointer it receives
+ *
+ *Realloc simply mallocs and copies the data from the old block.
+ *
+ *Since malloc and realloc aren't looking for free blocks and since free isn't coelescing free blocks,
+ *This model has very bad memory utilization.
+ *However due to simple design of malloc, realloc and free, the throughput is higher than the benchmark
+ *
+ *In further checkpoints, explicit and segregated free list models will be explored to improve utilization and throughput
+ *
  */
 #include <assert.h>
 #include <stdio.h>
@@ -47,29 +62,15 @@
 /* What is the correct alignment? */
 #define ALIGNMENT 16
 
-#define CLASS0 16
-#define CLASS1 32
-#define CLASS2 48 
-#define CLASS3 64
-#define CLASS4 128
-#define CLASS5 512
-#define CLASS6 1024
-#define CLASS7 2048
-#define CLASS8 4096
-#define CLASS9 16384
-#define CLASS10 65536
-#define CLASS11 262144
-#define CLASS12 1048576
-#define CLASS13 4194304
-#define CLASS14 16777216
-#define CLASS15 67108864
 /* rounds up to the nearest multiple of ALIGNMENT */
 static size_t align(size_t x)
 {
     return ALIGNMENT * ((x+ALIGNMENT-1)/ALIGNMENT);
 }
 
+/*Pointer keeping track of the Head of the free heap*/                                                                                void * head = NULL;
 
+<<<<<<< HEAD
 /**********************LINKED LIST*********************/
 typedef struct FreeListNode_s {
     struct FreeListNode_s * prev;
@@ -193,17 +194,17 @@ void split_block(FreeListNode * node, size_t size, size_t blocksize){
     // add_free_node(&freelist[index], (FreeListNode *) start_of_block);
     free(start_of_block);
 }
+=======
+>>>>>>> parent of a630137... Added Seglist framework and helper functions
 /*
  * Initialize: returns false on error, true on success.
  */
 bool mm_init(void)
 {
-    for(int i=0;i<16;i++){
-        freelist[i]=NULL;
-    }
     /*start is a long pointer - 8bytes long*/
     /*Adding 1 will move the address forward by 8 bytes*/
     long * start = (long*)mem_sbrk((intptr_t)24);
+
     /*Return false for initialization errors*/
     if (start == NULL)return false;
 
@@ -234,7 +235,7 @@ bool mm_init(void)
     start = start + 1;
     
     /*Global head points to address after prologue + header*/
-    //    head = (void *) start;
+    head = (void *) start;
 
     return true;
 }
@@ -245,6 +246,7 @@ bool mm_init(void)
 void* malloc(size_t size)
 {
     
+<<<<<<< HEAD
     if(size<=0)return NULL;
     char * ret_ptr = NULL;
     size = align(size);
@@ -292,6 +294,43 @@ void* malloc(size_t size)
     *(long*)epilogue = (*(long*)epilogue & 0x0)+1;
     set_alloc((void *)ret_ptr);
     return (void *) ret_ptr;
+=======
+    if(size>0){
+        
+        /*Extend heap by 16byte aligned size + 16 bytes for header and footer*/
+        /*Store return value for pointer to check for errors with mem_sbrk*/
+        void *temp_head = mem_sbrk((intptr_t)(align(size)+16));
+        if (temp_head == (void *)-1)return NULL;
+
+        /*New payload will start from global head - header has already been allocated*/
+        void * ret_ptr = head;
+
+        /*Adjust the locations of the payload header, footer and new epilogue*/
+        char * header=head-8, *footer = mem_heap_hi()-7, *epilogue = mem_heap_hi()+1;
+
+        /*Store size in header and set allocated bit*/
+        /*Typecasting to (long *) makes sure all 8 bytes of the  header are being used*/
+        *(long*)header = align(size);
+        *(long*)header = *(long*)header | 0x1;
+        
+        /*Store size in footer and set allocated bit*/
+        /*Typecasting to (long *) makes sure all 8 bytes of the  header are being used*/
+        *(long*)footer = align(size);
+        *(long*)footer = *(long*)footer | 0x1;
+
+        /*Set empty epilogue and set allocated bit*/
+        /*Typecasting to (long *) makes sure all 8 bytes of the  header are being used*/
+        *(long*)epilogue = *(long*)epilogue & 0x0;
+        *(long*)epilogue = *(long*)epilogue | 0x1;
+
+        /*Global head points to end of allocated payload + header of next payload*/
+        head = (void *)((long*)epilogue+1);
+
+        return ret_ptr;
+    }
+    /* Return NULL if size<=0 */
+    return NULL;
+>>>>>>> parent of a630137... Added Seglist framework and helper functions
 }
 
 /*
@@ -299,12 +338,17 @@ void* malloc(size_t size)
  */
 void free(void* ptr)
 {
+<<<<<<< HEAD
     size_t size = get_size_from_header(ptr);
     /*Alloc bit of header is cleared*/
     set_header_free(ptr);
     //    coalesce_right(ptr);
     int index = size_to_class_index(size);
     add_free_node(&freelist[index], (FreeListNode *) ptr);
+=======
+    /*Alloc bit of header is cleared*/
+    *((char *)ptr-8) = *((char *)ptr-8) & 0xfffffffffffffff0;
+>>>>>>> parent of a630137... Added Seglist framework and helper functions
     return;
 }
 
@@ -331,7 +375,8 @@ void* realloc(void* oldptr, size_t size)
     /*Read size of old block*/
     /*Dereferencing (long*) gives 8 byte value*/
     size_t oldsize = *((long*)oldptr-1);
-    oldsize = (oldsize & ~0xf);
+    oldsize = (oldsize & 0xfffffffffffffff0);
+
     /*Align new size to 16 bytes*/
     size = align(size);
 
