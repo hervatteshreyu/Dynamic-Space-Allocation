@@ -74,10 +74,6 @@
 #define CLASS9 16384
 #define CLASS10 65536
 #define CLASS11 262144
-#define CLASS12 1048576
-#define CLASS13 4194304
-#define CLASS14 16777216
-#define CLASS15 67108864
 /* rounds up to the nearest multiple of ALIGNMENT */
 static size_t align(size_t x)
 {
@@ -91,7 +87,7 @@ typedef struct FreeListNode_s {
   struct FreeListNode_s * next;
 }FreeListNode;
 
-FreeListNode * freelist[16];
+FreeListNode * freelist[12];
 
 void add_free_node(FreeListNode ** head, FreeListNode * node){
   node->next = *head;
@@ -132,10 +128,6 @@ int size_to_class_index(size_t size){
   if (size >CLASS8 && size <=CLASS9) return 9;
   if (size >CLASS9 && size <=CLASS10) return 10;
   if (size >CLASS10 && size <=CLASS11) return 11;
-  if (size >CLASS11 && size <=CLASS12) return 12;
-  if (size >CLASS12 && size <=CLASS13) return 13;
-  if (size >CLASS13 && size <=CLASS14) return 14;
-  if (size >CLASS14 && size <=CLASS15) return 15;
   return -1;
 }
 
