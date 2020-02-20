@@ -133,14 +133,65 @@ int size_to_class_index(size_t size){
 }
 
 size_t get_size_from_header(void * ptr){
-    return ((size_t) *(((long *)ptr)-1) & ~0xf);
+    long * header =  ((long *)ptr )-1;
+    size_t size = *header & ~0xf;
+    return size;
 }
 void set_header_free(void * ptr){
     long * header = ((long *)ptr-1); 
     *header = *header & ~0xf;
 }
+void set_alloc(void * ptr){
+    long * header = (((long *)ptr)-1);
+    *header = *header & ~0xf;
+    long * footer = (((long *)ptr) + ((*header)/8));
+    *header = *header + 1;
+    *footer = *header;
+}
+bool is_free_left(void * ptr){
+    long * footer = (((long *)ptr)-2);
+    if(((*footer) & 0xf) == 1)return false;
+    return true;
+}
+bool is_free_right(void * ptr){
+    long * header = (((long *)ptr)-1);
+    *header = *header & ~0xf;
+    long * footer = (((long *)ptr) + ((*header)/8));
+    long * next_header = footer + 1;
+    if(((*next_header) & 0xf) == 1)return false;
+    return true;
+}
+void coalesce_right(void * ptr){
+    if(!is_free_right(ptr))return;
+    else{
+    long * header = (((long *)ptr)-1);
+    long * footer = (((long *)ptr) + ((*header)/8));
+    long * next_header = footer + 1;
+    long * next_footer = (((long *)ptr) + ((*next_header)/8));
+    size_t size = next_footer - header + 1;
+    *header = size;
+    *next_footer = size;
+    return;
+    }
+}
+
 size_t size_of_node(FreeListNode * node){
     return get_size_from_header((void *) node);
+}
+void split_block(FreeListNode * node, size_t size, size_t blocksize){
+    size_t newsize = blocksize - size-16;
+    void * header =(void*) (((long *) node) - 1);
+    *(long *)header = size+1;
+    void * end_of_block = (void *) (((long *)node) + (size/8));
+    *(long *)end_of_block = size+1;
+    end_of_block = end_of_block + 8;
+    *(long *)end_of_block = newsize;
+    void * start_of_block = end_of_block + 8;
+    end_of_block = start_of_block + newsize;
+    *(long *)end_of_block = newsize;
+    //    int index = size_to_class_index(newsize);
+    // add_free_node(&freelist[index], (FreeListNode *) start_of_block);
+    free(start_of_block);
 }
 /*
  * Initialize: returns false on error, true on success.
@@ -195,20 +246,21 @@ void* malloc(size_t size)
 {
     
     if(size<=0)return NULL;
-
+    char * ret_ptr = NULL;
     size = align(size);
     bool split_flag=false, found_flag=false;
     int index = size_to_class_index(size);
+    size_t blocksize = 0;
     if(index!=-1){
         if(freelist[index]!=NULL){
             FreeListNode * node = freelist[index];
             while(!list_at_end(node)){
-                size_t blocksize = size_of_node(node);
+                blocksize = size_of_node(node);
                 if(size==blocksize){
                     found_flag=true;
                     break;
                 }
-                if(size<blocksize){
+                if(size<blocksize-32){
                     found_flag=true;
                     split_flag=true;
                     break;
@@ -216,25 +268,30 @@ void* malloc(size_t size)
                 node=node->next;
             }
             if(found_flag){
-                return remove_free_node( &freelist[index] , node);
+                if(split_flag){
+                    split_block(node, size,blocksize);
+                }
+                ret_ptr = (char *)remove_free_node( &freelist[index] , node);
+                set_alloc((void *)ret_ptr);
+                return (void *)ret_ptr;
             }
-            if(split_flag){};
         }
+        
     }
     
-        char * ret_ptr = mem_heap_hi() + 9;
-        void *temp_head = mem_sbrk((intptr_t)(size+16));
-        if (temp_head == (void *)-1)return NULL;
-
-        char * header=(char *)((long *)ret_ptr - 1), *footer = mem_heap_hi()-7, *epilogue = mem_heap_hi()+1;
-
-        *(long*)header = size+1;
-        
-        *(long*)footer = size+1;
-
-        *(long*)epilogue = (*(long*)epilogue & 0x0)+1;
-
-        return (void *) ret_ptr;
+    ret_ptr = mem_heap_hi() + 9;
+    void *temp_head = mem_sbrk((intptr_t)(size+16));
+    if (temp_head == (void *)-1)return NULL;
+    
+    char * header=(char *)((long *)ret_ptr - 1), *footer = mem_heap_hi()-7, *epilogue = mem_heap_hi()+1;
+    
+    *(long*)header = size+1;
+    
+    *(long*)footer = size+1;
+    
+    *(long*)epilogue = (*(long*)epilogue & 0x0)+1;
+    set_alloc((void *)ret_ptr);
+    return (void *) ret_ptr;
 }
 
 /*
@@ -245,6 +302,7 @@ void free(void* ptr)
     size_t size = get_size_from_header(ptr);
     /*Alloc bit of header is cleared*/
     set_header_free(ptr);
+    //    coalesce_right(ptr);
     int index = size_to_class_index(size);
     add_free_node(&freelist[index], (FreeListNode *) ptr);
     return;
