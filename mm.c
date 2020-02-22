@@ -1,5 +1,3 @@
-
-
 /*
  * mm.c
  *
@@ -148,8 +146,10 @@ size_t get_size_from_header(void * ptr){
 void set_free(void * ptr){
     long * header = ((long *)ptr-1); 
     *header = *header & ~0xf;
-    long * footer = header + (*header/8);
+    long * footer = ptr + (*header/8);
     *footer = *header;
+    mm_checkheap(__LINE__);
+    
 }
 void set_alloc(void * ptr){
     long * header = (((long *)ptr)-1);
@@ -283,7 +283,6 @@ void* malloc(size_t size)
             if(found_flag){
                 if(split_flag){
                     //   split_block(node, size,blocksize);
-                    mm_checkheap(__LINE__);
                 }
                 ret_ptr = (char *)remove_free_node( &freelist[index] , node);
                 set_alloc((void *)ret_ptr);
@@ -317,11 +316,12 @@ void* malloc(size_t size)
 void free(void* ptr)
 {
     size_t size = get_size_from_header(ptr);
-    /*Alloc bit of header is cleared*/
+    /*Alloc bits are cleared*/
     set_free(ptr);
     //    coalesce_right(ptr);
     int index = size_to_class_index(size);
     add_free_node(&freelist[index], (FreeListNode *) ptr);
+    //mm_checkheap(__LINE__);
     return;
 }
 
@@ -389,15 +389,17 @@ static bool aligned(const void* p)
   return align(ip) == ip;
 }
 bool checknodefree(FreeListNode * node){
-    bool retval = false;
+    bool retval = true;
     void * ptr = (void *)node;
     long * header = ((long *)ptr) - 1;
-    //    size_t size = get_size_from_header(ptr);
-    retval = (((*header) & 0xf) == 0x0);
-    if(!retval){dbg_printf("Header of node not free\n");};
-    //    long * footer = ((long *)ptr) + (size/8);
-    //retval = (((*footer) & 0xf) == 0x0);
-    //if(!retval){dbg_printf("Footer of node not free\n");};
+    size_t size = get_size_from_header(ptr);
+    retval = (((*header) & 0x1) == 0);
+    if(!retval){
+        dbg_printf("Header of node not marked free\nHeader = 0x%lx\n",*header);
+    };
+    long * footer = ((long *)ptr) + (size/8);
+    retval = (((*footer) & 0xf) == 0);
+    if(!retval){dbg_printf("Footer of node not marked free\nFooter = 0x%lx\n",*footer);};
     return retval;
 }
 bool checkfreelist(){
@@ -417,10 +419,29 @@ bool checkfreelist(){
     return retval;
 }
 bool checkcoalesce(){
+    bool retval = true;
+    
 #ifdef DEBUG
+    char * ptr = mem_heap_lo() +(0x10-offset)+ 8;
+    char * header = ptr - 8;
+    //    char * footer = ptr+get_size_from_header((void *)ptr);
+    bool currfree=false,prevfree=false;
+    while(ptr < (char *)mem_heap_hi()+1){
+        if( ((*(long *)header) & 0x1) != 1)currfree=true;
+        if(currfree && prevfree){
+            retval = false;
+            dbg_printf("Block at %p not coalesced with prev\n",ptr);
+        }
+        prevfree = currfree;
+        currfree = false;
+        ptr = ptr+get_size_from_header((void *)ptr)+16;
+        header = ptr - 8;
+    }
 #endif
-    return true;
+    return retval;
+    
 }
+
 void * get_foot_from_head(void * ptr){
     size_t size = get_size_from_header(ptr);
     char * footer = (char *)ptr;
@@ -445,8 +466,6 @@ bool mm_checkheap(int lineno)
     //printheap();
     if(!checkfreelist()){dbg_printf("Free list check failed at %d\n",lineno);};
     if(!checkcoalesce()){dbg_printf("Coalesce check failed at %d\n",lineno);};
-    /* Write code to check heap invariants here */
-    /* NOT IMPLEMENTED IN THIS CHECKPOINT */
 #endif /* DEBUG */
   return true;
 }
