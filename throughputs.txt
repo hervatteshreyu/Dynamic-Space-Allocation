@@ -1,2 +1,1 @@
-Intel(R)Xeon(R)CPUE5-1620v3@3.50GHz:regular:20092
-Intel(R)Core(TM)i7-9750HCPU@2.60GHz:regular:7543
+Intel(R)Core(TM)i7-9750HCPU@2.60GHz:regular:18936

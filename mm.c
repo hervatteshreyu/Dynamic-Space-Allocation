@@ -36,7 +36,7 @@
  * uncomment the following line. Be sure not to have debugging enabled
  * in your final submission.
  */
-#define DEBUG
+//#define DEBUG
 
 #ifdef DEBUG
 /* When debugging is enabled, the underlying functions get called */
@@ -93,9 +93,17 @@ FreeListNode * freelist[CLASSLIMIT];
 int offset=0;
 
 void add_free_node(FreeListNode ** head, FreeListNode * node){
-  node->next = *head;
-  node->prev = NULL;
-  (*head)->prev = node;
+    if(*head == NULL){
+        *head = node;
+        node->next = NULL;
+        node->prev = NULL;
+    }
+    else{
+        node->next = *head;
+        node->prev = NULL;
+        (*head)->prev = node;
+        *head = node;
+    }
 }
 
 FreeListNode* remove_free_node(FreeListNode ** head, FreeListNode * node)
@@ -180,9 +188,6 @@ void coalesce_right(void * ptr){
     }
 }
 
-size_t size_of_node(FreeListNode * node){
-    return get_size_from_header((void *) node);
-}
 void split_block(FreeListNode * node, size_t size, size_t blocksize){
     size_t newsize = blocksize - size-16;
     void * header =(void*) (((long *) node) - 1);
@@ -197,7 +202,8 @@ void split_block(FreeListNode * node, size_t size, size_t blocksize){
     int index = size_to_class_index(newsize);
     add_free_node(&freelist[index], (FreeListNode *) start_of_block);
     set_free(start_of_block);
-void set_header_free(void * ptr){
+}
+    void set_header_free(void * ptr){
   long * header = ((long *)ptr-1); 
   *header = *header & ~0xf;
 }
@@ -244,7 +250,8 @@ bool mm_init(void)
     
     /*Global head points to address after prologue + header*/
     //    head = (void *) start;
-    return true;}
+    return true;
+}
 
 /*
  * malloc
@@ -284,10 +291,9 @@ void* malloc(size_t size)
             }
         }
     }
-}
-
+ 
     
-  char * ret_ptr = mem_heap_hi() + 9;
+  ret_ptr = mem_heap_hi() + 9;
   void *temp_head = mem_sbrk((intptr_t)(size+16));
   if (temp_head == (void *)-1)return NULL;
 
@@ -313,7 +319,7 @@ void free(void* ptr)
     size_t size = get_size_from_header(ptr);
     /*Alloc bit of header is cleared*/
     set_free(ptr);
-    coalesce_right(ptr);
+    //    coalesce_right(ptr);
     int index = size_to_class_index(size);
     add_free_node(&freelist[index], (FreeListNode *) ptr);
     return;
