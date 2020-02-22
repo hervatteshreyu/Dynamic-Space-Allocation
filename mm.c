@@ -2,22 +2,24 @@
  * mm.c
  *
  * Name: Shreyas Hervatte Santosh
- *This is a basic implementation of malloc. Throughput and utilization are not being accounted for.
- *This version only aims for correctness of malloc. 
- *Malloc works by increasing the size of the heap everytime malloc is called.
- *It maintains 16 byte alignment of payload addresses by starting off with some padding before the prologue
- *and every malloc returns 16 byte aligned addresses and adds a header and a footer of 8 bytes each
+ *this version of my implementation uses a segregated free list approach.
+ *i have used 12 size classes (since we were only allowed 128 global bytes and i needed other global variables).
+ *my free list is in the form of a linked list.
+ *i used concepts from the pointerlab assignment to make my linked list struct and helper functions.
+ *when malloc is called, it aligns the size requested and checks if there are blocks in the freelist of that size class.
+ *if yes, it pops the node from the linked list and sends the pointer to the user.
+ *if no, it extends the heap and gives the user the new space.
+ *when free is called, it adds the block to the free list of the corresponding class.
+ *my realloc calls free or malloc depending on the size/ptr as required. it then copies the data to the new block.
+ *i was not able to properly implement coalescing and splitting. i was encountering a lot of bugs.
+ *consequently, my utilization is not very impressive. 
+ *my throughputs are comparable with the benchmark since i'm not taking time to coalesce and split.
  *
- *Free does essentially nothing but clear the allocated bit of the header of the pointer it receives
- *
- *Realloc simply mallocs and copies the data from the old block.
- *
- *Since malloc and realloc aren't looking for free blocks and since free isn't coelescing free blocks,
- *This model has very bad memory utilization.
- *However due to simple design of malloc, realloc and free, the throughput is higher than the benchmark
- *
- *
-  */
+ *my heap checker was designed keeping the coalescing and splitting in mind.
+ *it first checks for nodes improperly added to the free lists.
+ *it then checks for uncoalesced free blocks
+ *it also allows me to 'print' the entire heap so i can manually see if an issue occurs when checking a particular trace.
+ */
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,8 +32,8 @@
 #include "memlib.h"
 
 /*
- * If you want to enable your debugging output and heap checker code,
- * uncomment the following line. Be sure not to have debugging enabled
+ * if you want to enable your debugging output and heap checker code,
+ * uncomment the following line. be sure not to have debugging enabled
  * in your final submission.
  */
 //#define DEBUG
@@ -76,14 +78,14 @@
 /* rounds up to the nearest multiple of ALIGNMENT */
 static size_t align(size_t x)
 {
-  return ALIGNMENT * ((x+ALIGNMENT-1)/ALIGNMENT);
+    return ALIGNMENT * ((x+ALIGNMENT-1)/ALIGNMENT);
 }
 
 
 /**********************LINKED LIST*********************/
 typedef struct FreeListNode_s {
-  struct FreeListNode_s * prev;
-  struct FreeListNode_s * next;
+    struct FreeListNode_s * prev;
+    struct FreeListNode_s * next;
 }FreeListNode;
 
 
@@ -95,7 +97,7 @@ void add_free_node(FreeListNode ** head, FreeListNode * node){
         *head = node;
         node->next = NULL;
         node->prev = NULL;
-    }
+    } 
     else{
         node->next = *head;
         node->prev = NULL;
@@ -106,42 +108,42 @@ void add_free_node(FreeListNode ** head, FreeListNode * node){
 
 FreeListNode* remove_free_node(FreeListNode ** head, FreeListNode * node)
 {
-  FreeListNode* removed_node = node;
-  if(*head == node){
-    (*head) = (node->next);
-  }
-  else{
-    node->prev->next = node->next;
-  }
-  if(node->next!=NULL)node->next->prev = node->prev;
-  return removed_node;
+    FreeListNode* removed_node = node;
+    if(*head == node){
+        (*head) = (node->next);
+    }
+    else{
+        node->prev->next = node->next;
+    }
+    if(node->next!=NULL)node->next->prev = node->prev;
+    return removed_node;
 }    
 bool list_at_end(FreeListNode * node)
 {
-  if(node->next == NULL)
-    return true;
-  else
-    return false;
+    if(node->next == NULL)
+        return true;
+    else
+        return false;
 }
 
 int size_to_class_index(size_t size){
-  if (size == CLASS0) return 0;
-  if (size >CLASS0 && size <=CLASS1) return 1;
-  if (size >CLASS1 && size <=CLASS2) return 2;
-  if (size >CLASS2 && size <=CLASS3) return 3;
-  if (size >CLASS3 && size <=CLASS4) return 4;
-  if (size >CLASS4 && size <=CLASS5) return 5;
-  if (size >CLASS5 && size <=CLASS6) return 6;
-  if (size >CLASS6 && size <=CLASS7) return 7;
-  if (size >CLASS7 && size <=CLASS8) return 8;
-  if (size >CLASS8 && size <=CLASS9) return 9;
-  if (size >CLASS9 && size <=CLASS10) return 10;
-  if (size >CLASS10 && size <=CLASS11) return 11;
-  return -1;
+    if (size == CLASS0) return 0;
+    if (size >CLASS0 && size <=CLASS1) return 1;
+    if (size >CLASS1 && size <=CLASS2) return 2;
+    if (size >CLASS2 && size <=CLASS3) return 3;
+    if (size >CLASS3 && size <=CLASS4) return 4;
+    if (size >CLASS4 && size <=CLASS5) return 5;
+    if (size >CLASS5 && size <=CLASS6) return 6;
+    if (size >CLASS6 && size <=CLASS7) return 7;
+    if (size >CLASS7 && size <=CLASS8) return 8;
+    if (size >CLASS8 && size <=CLASS9) return 9;
+    if (size >CLASS9 && size <=CLASS10) return 10;
+    if (size >CLASS10 && size <=CLASS11) return 11;
+    return -1;
 }
 
 size_t get_size_from_header(void * ptr){
-  return ((size_t) *(((long *)ptr)-1) & ~0xf);
+    return ((size_t) *(((long *)ptr)-1) & ~0xf);
 }
 void set_free(void * ptr){
     long * header = ((long *)ptr-1); 
@@ -175,16 +177,16 @@ static bool in_heap(const void *);
 void coalesce_right(void * ptr){
     if(!is_free_right(ptr))return;
     else{
-    long * header = (((long *)ptr)-1);
-    long * footer = (((long *)ptr) + ((*header)/8));
-    long * next_header = footer + 1;
-    if(!in_heap(next_header))return;
-    long * next_footer = (((long *)ptr) + ((*next_header)/8));
-    if(!in_heap(next_footer))return;
-    size_t size = next_footer - header + 1;
-    *header = size;
-    *next_footer = size;
-    return;
+        long * header = (((long *)ptr)-1);
+        long * footer = (((long *)ptr) + ((*header)/8));
+        long * next_header = footer + 1;
+        if(!in_heap(next_header))return;
+        long * next_footer = (((long *)ptr) + ((*next_header)/8));
+        if(!in_heap(next_footer))return;
+        size_t size = next_footer - header + 1;
+        *header = size;
+        *next_footer = size;
+        return;
     }
 }
 
@@ -203,12 +205,12 @@ void split_block(FreeListNode * node, size_t size, size_t blocksize){
     add_free_node(&freelist[index], (FreeListNode *) start_of_block);
     set_free(start_of_block);
 }
-    void set_header_free(void * ptr){
-  long * header = ((long *)ptr-1); 
-  *header = *header & ~0xf;
+void set_header_free(void * ptr){
+    long * header = ((long *)ptr-1); 
+    *header = *header & ~0xf;
 }
 size_t size_of_node(FreeListNode * node){
-  return get_size_from_header((void *) node);
+    return get_size_from_header((void *) node);
 }
 /*
  * Initialize: returns false on error, true on success.
@@ -223,26 +225,26 @@ bool mm_init(void)
     long * start = (long*)mem_sbrk((intptr_t)24);
     /*Return false for initialization errors*/
     if (start == NULL)return false;
-
+    
     /*Calculate lower 4 bytes of address including 2 headers and a footer*/
     offset = (intptr_t)(start+3) & 0xF;
-
+    
     if(offset != 0){
         /*Not 16 byte aligned - add padding before prologue*/
         /*Payload after prologue + header will be 16 byte aligned*/
         start = start+((0x10-offset)/8);
     }
-
+    
     /*Header of Prologue*/
     /*Set size 0 and alloc bit high*/
     *start = 0x1;
     start = start + 1;
-
+    
     /*Footer of Prologue*/
     /*Set size 0 and alloc bit high*/
     *start = 0x1;
     start = start + 1;
-
+    
     /*Header of Epilogue*/
     /*Set size 0 and alloc bit high*/
     *start = 0x1;
@@ -290,24 +292,24 @@ void* malloc(size_t size)
             }
         }
     }
- 
     
-  ret_ptr = mem_heap_hi() + 9;
-  void *temp_head = mem_sbrk((intptr_t)(size+16));
-  if (temp_head == (void *)-1)return NULL;
-
-  char * header=(char *)((long *)ret_ptr - 1), *footer = mem_heap_hi()-7, *epilogue = mem_heap_hi()+1;
-
-  *(long*)header = size;
-  *(long*)header = *(long*)header | 0x1;
-        
-  *(long*)footer = size;
-  *(long*)footer = *(long*)footer | 0x1;
-
-  *(long*)epilogue = *(long*)epilogue & 0x0;
-  *(long*)epilogue = *(long*)epilogue | 0x1;
-
-  return (void *) ret_ptr;
+    /*************IF NOT FOUND A BLOCK IN FREE LIST*******************/
+    ret_ptr = mem_heap_hi() + 9;
+    void *temp_head = mem_sbrk((intptr_t)(size+16));
+    if (temp_head == (void *)-1)return NULL;
+    
+    char * header=(char *)((long *)ret_ptr - 1), *footer = mem_heap_hi()-7, *epilogue = mem_heap_hi()+1;
+    
+    *(long*)header = size;
+    *(long*)header = *(long*)header | 0x1;
+    
+    *(long*)footer = size;
+    *(long*)footer = *(long*)footer | 0x1;
+    
+    *(long*)epilogue = *(long*)epilogue & 0x0;
+    *(long*)epilogue = *(long*)epilogue | 0x1;
+    
+    return (void *) ret_ptr;
 }
 
 /*
@@ -330,29 +332,29 @@ void free(void* ptr)
  */
 void* realloc(void* oldptr, size_t size)
 {
-  /*If size is zero, return NULL - Undefined behaviour*/
-  if(size == 0)return NULL;
-
-  /*Try to malloc for a new size*/
-  void * newptr = malloc(size);
-
-  /*Malloc error*/
-  if(newptr == NULL)return NULL;
-
-  /*If old pointer wsan't returned from a malloc or calloc, return output of malloc*/
-  if(oldptr == NULL)return newptr;
-
-  /*Read size of old block*/
-  /*Dereferencing (long*) gives 8 byte value*/
-  size_t oldsize = *((long*)oldptr-1);
-  oldsize = (oldsize & ~0xf);
-  /*Align new size to 16 bytes*/
-  size = align(size);
-
-  /*Copy data from old block to new block - size decided by minimum of old and new sizes*/
-  mem_memcpy(newptr, oldptr, oldsize>size?size:oldsize);
+    /*If size is zero, return NULL - Undefined behaviour*/
+    if(size == 0)return NULL;
     
-  return newptr;
+    /*Try to malloc for a new size*/
+    void * newptr = malloc(size);
+    
+    /*Malloc error*/
+    if(newptr == NULL)return NULL;
+    
+    /*If old pointer wsan't returned from a malloc or calloc, return output of malloc*/
+    if(oldptr == NULL)return newptr;
+    
+    /*Read size of old block*/
+    /*Dereferencing (long*) gives 8 byte value*/
+    size_t oldsize = *((long*)oldptr-1);
+    oldsize = (oldsize & ~0xf);
+    /*Align new size to 16 bytes*/
+    size = align(size);
+    
+    /*Copy data from old block to new block - size decided by minimum of old and new sizes*/
+    mem_memcpy(newptr, oldptr, oldsize>size?size:oldsize);
+    
+    return newptr;
 }
 
 /*
@@ -361,13 +363,13 @@ void* realloc(void* oldptr, size_t size)
  */
 void* calloc(size_t nmemb, size_t size)
 {
-  void* ptr;
-  size *= nmemb;
-  ptr = malloc(size);
-  if (ptr) {
-    memset(ptr, 0, size);
-  }
-  return ptr;
+    void* ptr;
+    size *= nmemb;
+    ptr = malloc(size);
+    if (ptr) {
+        memset(ptr, 0, size);
+    }
+    return ptr;
 }
 
 /*
@@ -376,7 +378,7 @@ void* calloc(size_t nmemb, size_t size)
  */
 static bool in_heap(const void* p)
 {
-  return p <= mem_heap_hi() && p >= mem_heap_lo();
+    return p <= mem_heap_hi() && p >= mem_heap_lo();
 }
 
 /*
@@ -385,8 +387,8 @@ static bool in_heap(const void* p)
  */
 static bool aligned(const void* p)
 {
-  size_t ip = (size_t) p;
-  return align(ip) == ip;
+    size_t ip = (size_t) p;
+    return align(ip) == ip;
 }
 bool checknodefree(FreeListNode * node){
     bool retval = true;
@@ -467,5 +469,5 @@ bool mm_checkheap(int lineno)
     if(!checkfreelist()){dbg_printf("Free list check failed at %d\n",lineno);};
     if(!checkcoalesce()){dbg_printf("Coalesce check failed at %d\n",lineno);};
 #endif /* DEBUG */
-  return true;
+    return true;
 }
